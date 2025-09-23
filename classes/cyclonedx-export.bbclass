@@ -13,6 +13,10 @@ CYCLONEDX_EXPORT_VEX ??= "${CYCLONEDX_EXPORT_DIR}/vex.json"
 CYCLONEDX_EXPORT_TMP ??= "${TMPDIR}/cyclonedx-export"
 CYCLONEDX_EXPORT_LOCK ??= "${CYCLONEDX_EXPORT_TMP}/bom.lock"
 
+# --- ADDED: Variables for XML output files ---
+CYCLONEDX_EXPORT_SBOM_XML ??= "${CYCLONEDX_EXPORT_DIR}/bom.xml"
+CYCLONEDX_EXPORT_VEX_XML ??= "${CYCLONEDX_EXPORT_DIR}/vex.xml"
+
 python do_cyclonedx_init() {
     import uuid
     from datetime import datetime, timezone
@@ -134,6 +138,24 @@ addtask do_cyclonedx_package_collect before do_build
 do_cyclonedx_package_collect[nostamp] = "1"
 do_cyclonedx_package_collect[lockfiles] += "${CYCLONEDX_EXPORT_LOCK}"
 do_rootfs[recrdeptask] += "do_cyclonedx_package_collect"
+
+# --- Converting JSON to XML  ---
+do_cyclonedx_finalize() {
+    if ! command -v cyclonedx-cli >/dev/null 2>&1; then
+        bbfatal "cyclonedx-cli not found in PATH. Please install it to generate XML reports."
+    fi
+
+    bbnote "Converting CycloneDX JSON reports to XML format..."
+
+    # Use the original JSON files as input for the conversion
+    cyclonedx-cli convert --input-file "${CYCLONEDX_EXPORT_SBOM}" --output-file "${CYCLONEDX_EXPORT_SBOM_XML}" --output-format xml
+    cyclonedx-cli convert --input-file "${CYCLONEDX_EXPORT_VEX}" --output-file "${CYCLONEDX_EXPORT_VEX_XML}" --output-format xml
+
+    bbnote "Original CycloneDX SBOM JSON report is at: ${CYCLONEDX_EXPORT_SBOM}"
+    bbnote "NEW CycloneDX SBOM XML report generated at: ${CYCLONEDX_EXPORT_SBOM_XML}"
+    bbnote "NEW CycloneDX VEX XML report generated at: ${CYCLONEDX_EXPORT_VEX_XML}"
+}
+addtask do_cyclonedx_finalize after do_rootfs
 
 def read_json(path):
     import json
