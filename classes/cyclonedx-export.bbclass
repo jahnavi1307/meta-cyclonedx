@@ -141,21 +141,49 @@ do_rootfs[recrdeptask] += "do_cyclonedx_package_collect"
 
 # --- Converting JSON to XML  ---
 do_cyclonedx_finalize() {
-    if ! command -v cyclonedx-cli >/dev/null 2>&1; then
-        bbfatal "cyclonedx-cli not found in PATH. Please install it to generate XML reports."
+    if [ ! -f "${CYCLONEDX_EXPORT_SBOM}" ]; then
+        bbwarn "SBOM JSON file not found: ${CYCLONEDX_EXPORT_SBOM}"
+        return
     fi
 
-    bbnote "Converting CycloneDX JSON reports to XML format..."
+    if [ ! -f "${CYCLONEDX_EXPORT_VEX}" ]; then
+        bbwarn "VEX JSON file not found: ${CYCLONEDX_EXPORT_VEX}"
+        return
+    fi
 
-    # Use the original JSON files as input for the conversion
-    cyclonedx-cli convert --input-file "${CYCLONEDX_EXPORT_SBOM}" --output-file "${CYCLONEDX_EXPORT_SBOM_XML}" --output-format xml
-    cyclonedx-cli convert --input-file "${CYCLONEDX_EXPORT_VEX}" --output-file "${CYCLONEDX_EXPORT_VEX_XML}" --output-format xml
+    CYCLONEDX_CLI=""
+    for path in "/usr/local/bin/cyclonedx-cli" "/tmp/cyclonedx-cli" "$(pwd)/cyclonedx-cli" "$HOME/bin/cyclonedx-cli"; do
+        if [ -x "$path" ]; then
+            CYCLONEDX_CLI="$path"
+            break
+        fi
+    done
 
-    bbnote "Original CycloneDX SBOM JSON report is at: ${CYCLONEDX_EXPORT_SBOM}"
-    bbnote "NEW CycloneDX SBOM XML report generated at: ${CYCLONEDX_EXPORT_SBOM_XML}"
-    bbnote "NEW CycloneDX VEX XML report generated at: ${CYCLONEDX_EXPORT_VEX_XML}"
+    if [ -z "$CYCLONEDX_CLI" ]; then
+        bbwarn "cyclonedx-cli not found. Only JSON files will be generated."
+        return
+    fi
+
+    bbnote "Converting CycloneDX JSON reports to XML format using $CYCLONEDX_CLI..."
+
+    if ! $CYCLONEDX_CLI convert --input-file "${CYCLONEDX_EXPORT_SBOM}" --output-file "${CYCLONEDX_EXPORT_SBOM_XML}" --output-format xml; then
+        bbwarn "Failed to convert SBOM JSON to XML"
+    else
+        bbnote "CycloneDX SBOM XML report generated at: ${CYCLONEDX_EXPORT_SBOM_XML}"
+    fi
+
+    if ! $CYCLONEDX_CLI convert --input-file "${CYCLONEDX_EXPORT_VEX}" --output-file "${CYCLONEDX_EXPORT_VEX_XML}" --output-format xml; then
+        bbwarn "Failed to convert VEX JSON to XML"
+    else
+        bbnote "CycloneDX VEX XML report generated at: ${CYCLONEDX_EXPORT_VEX_XML}"
+    fi
 }
-addtask do_cyclonedx_finalize after do_rootfs
+
+# Fix task dependencies
+addtask do_cyclonedx_finalize after do_cyclonedx_package_collect before do_build
+do_cyclonedx_finalize[nostamp] = "1"
+do_cyclonedx_finalize[lockfiles] += "${CYCLONEDX_EXPORT_LOCK}"
+
 
 def read_json(path):
     import json
