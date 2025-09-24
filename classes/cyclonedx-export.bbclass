@@ -18,8 +18,6 @@ CYCLONEDX_EXPORT_SBOM ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-bom.json"
 CYCLONEDX_EXPORT_VEX ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-vex.json"
 CYCLONEDX_EXPORT_SBOM_XML ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-bom.xml"
 CYCLONEDX_EXPORT_VEX_XML ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-vex.xml"
-#CYCLONEDX_EXPORT_SBOM_XML ??= "${CYCLONEDX_EXPORT_DIR}/bom.xml"
-#CYCLONEDX_EXPORT_VEX_XML ??= "${CYCLONEDX_EXPORT_DIR}/vex.xml"
 
 python do_cyclonedx_init() {
     import uuid
@@ -34,6 +32,19 @@ python do_cyclonedx_init() {
     sbom_serial_number = str(uuid.uuid4())
     vex_serial_number = str(uuid.uuid4())
 
+    # MODIFIED: Defining the component(deliverable/release)
+    # MODIFIED: This structure describes the image itself, which is the top-level product.
+    main_component = {
+        "type": "firmware",
+        "bom-ref": str(uuid.uuid4()),
+        "name": d.getVar("IMAGE_BASENAME"),
+        "version": d.getVar("DISTRO_VERSION"),
+        "supplier": {
+            "name": d.getVar("DISTRO_NAME")
+        }
+    }
+    
+
     bb.debug(2, f"Creating empty sbom file with serial number {sbom_serial_number}")
     write_json(d.getVar("CYCLONEDX_EXPORT_SBOM"), {
         "bomFormat": "CycloneDX",
@@ -43,6 +54,8 @@ python do_cyclonedx_init() {
         "metadata": {
             "timestamp": timestamp,
             "tools": [{"name": "yocto"}]
+             # MODIFIED: Added main component definition
+            "component": main_component
         },
         "components": []
     })
@@ -83,7 +96,8 @@ python do_cyclonedx_package_collect() {
     dict_id_ref_patched = {}
     dict_id_ref_ignored = {}
 
-    for pkg in generate_packages_list(name, version):
+    # MODIFIED: Pass the datastore 'd' to access recipe variables
+    for pkg in generate_packages_list(d, name, version):
         if not next((c for c in sbom["components"] if c["cpe"] == pkg["cpe"]), None):
             sbom["components"].append(pkg)
             bom_ref = pkg["bom-ref"]
@@ -143,7 +157,7 @@ do_cyclonedx_package_collect[nostamp] = "1"
 do_cyclonedx_package_collect[lockfiles] += "${CYCLONEDX_EXPORT_LOCK}"
 do_rootfs[recrdeptask] += "do_cyclonedx_package_collect"
 
-# --- Converting JSON to XML  ---
+# MODIFIED: Converting JSON to XML  
 python do_cyclonedx_convert_to_xml(e):
     import os
     import subprocess
@@ -201,11 +215,13 @@ def write_json(path, content):
         json.dumps(content, indent=2)
     )
 
-def generate_packages_list(products_names, version):
+# MODIFIED:function signature chnaged to accept datastore 'd'
+def generate_packages_list(d, products_names, version):
     """
     Get a list of products and generate CPE and PURL identifiers for each of them.
     """
     import uuid
+    import re
 
     packages = []
 
@@ -231,5 +247,27 @@ def generate_packages_list(products_names, version):
         }
         if vendor != "":
             pkg["group"] = vendor
+
+        # MODIFIED: Add license information 
+        license_str = d.getVar("LICENSE")
+        if license_str:
+            licenses = re.split(r'\s*[&|]\s*', license_str)
+            pkg["licenses"] = [{"license": {"id": lic}} for lic in licenses if lic]
+
+        # MODIFIED: Add external references for source project 
+        homepage = d.getVar("HOMEPAGE")
+        src_uri = d.getVar("SRC_URI")
+        references = []
+        if homepage:
+            references.append({"type": "website", "url": homepage})
+
+        if src_uri:
+            primary_uri = src_uri.split()[0]
+            ref_type = "vcs" if primary_uri.startswith(('git://', 'gitsm://')) or '.git' in primary_uri else "distribution"
+            references.append({"type": ref_type, "url": primary_uri})
+
+        if references:
+            pkg["externalReferences"] = references
+
         packages.append(pkg)
     return packages
