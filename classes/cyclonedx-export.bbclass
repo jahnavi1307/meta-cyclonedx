@@ -8,16 +8,16 @@ CVE_PRODUCT ??= "${BPN}"
 CVE_VERSION ??= "${PV}"
 
 CYCLONEDX_EXPORT_DIR ??= "${DEPLOY_DIR}/cyclonedx-export"
-#CYCLONEDX_EXPORT_SBOM ??= "${CYCLONEDX_EXPORT_DIR}/bom.json"
-#CYCLONEDX_EXPORT_VEX ??= "${CYCLONEDX_EXPORT_DIR}/vex.json"
+CYCLONEDX_EXPORT_SBOM ??= "${CYCLONEDX_EXPORT_DIR}/bom.json"
+CYCLONEDX_EXPORT_VEX ??= "${CYCLONEDX_EXPORT_DIR}/vex.json"
 CYCLONEDX_EXPORT_TMP ??= "${TMPDIR}/cyclonedx-export"
 CYCLONEDX_EXPORT_LOCK ??= "${CYCLONEDX_EXPORT_TMP}/bom.lock"
 
 # --- ADDED: Variables for XML output files ---
-CYCLONEDX_EXPORT_SBOM ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-bom.json"
-CYCLONEDX_EXPORT_VEX ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-vex.json"
-CYCLONEDX_EXPORT_SBOM_XML ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-bom.xml"
-CYCLONEDX_EXPORT_VEX_XML ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-vex.xml"
+#CYCLONEDX_EXPORT_SBOM ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-bom.json"
+#CYCLONEDX_EXPORT_VEX ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-vex.json"
+#CYCLONEDX_EXPORT_SBOM_XML ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-bom.xml"
+#CYCLONEDX_EXPORT_VEX_XML ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-vex.xml"
 
 python do_cyclonedx_init() {
     import uuid
@@ -158,50 +158,50 @@ do_cyclonedx_package_collect[lockfiles] += "${CYCLONEDX_EXPORT_LOCK}"
 do_rootfs[recrdeptask] += "do_cyclonedx_package_collect"
 
 # MODIFIED: Converting JSON to XML  
-python do_cyclonedx_convert_to_xml(e):
-    import os
-    import subprocess
+#python do_cyclonedx_convert_to_xml(e):
+ #   import os
+ #   import subprocess
 
-    d = e.data
-    sbom_json_path = d.getVar("CYCLONEDX_EXPORT_SBOM")
-    vex_json_path = d.getVar("CYCLONEDX_EXPORT_VEX")
-    sbom_xml_path = d.getVar("CYCLONEDX_EXPORT_SBOM_XML")
-    vex_xml_path = d.getVar("CYCLONEDX_EXPORT_VEX_XML")
+  #  d = e.data
+  #  sbom_json_path = d.getVar("CYCLONEDX_EXPORT_SBOM")
+  # vex_json_path = d.getVar("CYCLONEDX_EXPORT_VEX")
+   # sbom_xml_path = d.getVar("CYCLONEDX_EXPORT_SBOM_XML")
+   # vex_xml_path = d.getVar("CYCLONEDX_EXPORT_VEX_XML")
 
-    if not os.path.exists(sbom_json_path):
-        bb.warn(f"SBOM JSON file not found, skipping XML conversion: {sbom_json_path}")
-        return
+    #if not os.path.exists(sbom_json_path):
+    #    bb.warn(f"SBOM JSON file not found, skipping XML conversion: {sbom_json_path}")
+     #   return
 
-    cyclonedx_cli = ""
+   # cyclonedx_cli = ""
     # Search in system paths like /usr/local/bin
-    for path_dir in os.environ.get("PATH", "").split(os.pathsep):
-        path = os.path.join(path_dir, "cyclonedx-cli")
-        if os.path.isfile(path) and os.access(path, os.X_OK):
-            cyclonedx_cli = path
-            break
+    #for path_dir in os.environ.get("PATH", "").split(os.pathsep):
+     #   path = os.path.join(path_dir, "cyclonedx-cli")
+      #  if os.path.isfile(path) and os.access(path, os.X_OK):
+       #     cyclonedx_cli = path
+        #    break
 
-    if not cyclonedx_cli:
-        bb.warn("cyclonedx-cli executable not found in PATH. Only JSON files will be generated.")
-        return
+    #if not cyclonedx_cli:
+     #   bb.warn("cyclonedx-cli executable not found in PATH. Only JSON files will be generated.")
+      #  return
 
-    bb.note(f"Converting CycloneDX JSON reports to XML format using {cyclonedx_cli}...")
+    #bb.note(f"Converting CycloneDX JSON reports to XML format using {cyclonedx_cli}...")
 
-    cmd_sbom = [cyclonedx_cli, "convert", "--input-file", sbom_json_path, "--output-file", sbom_xml_path, "--output-format", "xml"]
-    try:
-        subprocess.check_output(cmd_sbom, stderr=subprocess.STDOUT)
-        bb.note(f"CycloneDX SBOM XML report generated at: {sbom_xml_path}")
-    except subprocess.CalledProcessError as err:
-        bb.warn(f"Failed to convert SBOM JSON to XML. Command output:\n{err.output.decode()}")
+    #cmd_sbom = [cyclonedx_cli, "convert", "--input-file", sbom_json_path, "--output-file", sbom_xml_path, "--output-format", "xml"]
+    #try:
+     #   subprocess.check_output(cmd_sbom, stderr=subprocess.STDOUT)
+      #  bb.note(f"CycloneDX SBOM XML report generated at: {sbom_xml_path}")
+    #except subprocess.CalledProcessError as err:
+     "   bb.warn(f"Failed to convert SBOM JSON to XML. Command output:\n{err.output.decode()}")
 
-    cmd_vex = [cyclonedx_cli, "convert", "--input-file", vex_json_path, "--output-file", vex_xml_path, "--output-format", "xml"]
-    try:
-        subprocess.check_output(cmd_vex, stderr=subprocess.STDOUT)
-        bb.note(f"CycloneDX VEX XML report generated at: {vex_xml_path}")
-    except subprocess.CalledProcessError as err:
-        bb.warn(f"Failed to convert VEX JSON to XML. Command output:\n{err.output.decode()}")
+    #cmd_vex = [cyclonedx_cli, "convert", "--input-file", vex_json_path, "--output-file", vex_xml_path, "--output-format", "xml"]
+    #try:
+    #    subprocess.check_output(cmd_vex, stderr=subprocess.STDOUT)
+     #   bb.note(f"CycloneDX VEX XML report generated at: {vex_xml_path}")
+    #except subprocess.CalledProcessError as err:
+     #   bb.warn(f"Failed to convert VEX JSON to XML. Command output:\n{err.output.decode()}")
 
-addhandler do_cyclonedx_convert_to_xml
-do_cyclonedx_convert_to_xml[eventmask] = "bb.event.BuildCompleted"
+#addhandler do_cyclonedx_convert_to_xml
+#do_cyclonedx_convert_to_xml[eventmask] = "bb.event.BuildCompleted"
 
 def read_json(path):
     import json
