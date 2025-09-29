@@ -8,16 +8,10 @@ CVE_PRODUCT ??= "${BPN}"
 CVE_VERSION ??= "${PV}"
 
 CYCLONEDX_EXPORT_DIR ??= "${DEPLOY_DIR}/cyclonedx-export"
-CYCLONEDX_EXPORT_SBOM ??= "${CYCLONEDX_EXPORT_DIR}/bom.json"
-CYCLONEDX_EXPORT_VEX ??= "${CYCLONEDX_EXPORT_DIR}/vex.json"
+CYCLONEDX_EXPORT_SBOM ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-bom.json"
+CYCLONEDX_EXPORT_VEX ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-vex.json"
 CYCLONEDX_EXPORT_TMP ??= "${TMPDIR}/cyclonedx-export"
 CYCLONEDX_EXPORT_LOCK ??= "${CYCLONEDX_EXPORT_TMP}/bom.lock"
-
-# --- ADDED: Variables for XML output files ---
-#CYCLONEDX_EXPORT_SBOM ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-bom.json"
-#CYCLONEDX_EXPORT_VEX ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-vex.json"
-#CYCLONEDX_EXPORT_SBOM_XML ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-bom.xml"
-#CYCLONEDX_EXPORT_VEX_XML ??= "${CYCLONEDX_EXPORT_DIR}/${IMAGE_BASENAME}-vex.xml"
 
 python do_cyclonedx_init() {
     import uuid
@@ -44,7 +38,6 @@ python do_cyclonedx_init() {
         }
     }
     
-
     bb.debug(2, f"Creating empty sbom file with serial number {sbom_serial_number}")
     write_json(d.getVar("CYCLONEDX_EXPORT_SBOM"), {
         "bomFormat": "CycloneDX",
@@ -96,56 +89,68 @@ python do_cyclonedx_package_collect() {
     dict_id_ref_patched = {}
     dict_id_ref_ignored = {}
 
-    # MODIFIED: Pass the datastore 'd' to access recipe variables
-    for pkg in generate_packages_list(d, name, version):
-        if not next((c for c in sbom["components"] if c["cpe"] == pkg["cpe"]), None):
-            sbom["components"].append(pkg)
-            bom_ref = pkg["bom-ref"]
+    # MODIFIED: Generate packages list
+    packages = generate_packages_list(d, name, version)
 
-            # populate vex file with patched CVEs
-            for _, patched_cve in enumerate(oe.cve_check.get_patched_cves(d)):
-                bb.debug(2, f"Found patch for CVE {patched_cve} in {name}@{version}")
-                if patched_cve not in dict_id_ref_patched:
-                    dict_id_ref_patched[patched_cve] = []
-                if bom_ref not in dict_id_ref_patched[patched_cve]:
-                    dict_id_ref_patched[patched_cve].append(bom_ref)
+    # MODIFIED: Create a parent component (e.g., the image or container)
+    parent_component = {
+        "name": d.getVar("IMAGE_BASENAME"),
+        "version": d.getVar("DISTRO_VERSION"),
+        "type": "container",
+        "bom-ref": str(uuid.uuid4()),
+        "components": packages
+    }
+
+    # MODIFIED: Add the parent component to the SBOM
+    if not any(c.get("bom-ref") == parent_component["bom-ref"] for c in sbom["components"]):
+        sbom["components"].append(parent_component)
+
+    # populate vex file with patched CVEs
+    for pkg in packages:
+        bom_ref = pkg["bom-ref"]
+        for _, patched_cve in enumerate(oe.cve_check.get_patched_cves(d)):
+            bb.debug(2, f"Found patch for CVE {patched_cve} in {name}@{version}")
+            if patched_cve not in dict_id_ref_patched:
+                dict_id_ref_patched[patched_cve] = []
+            if bom_ref not in dict_id_ref_patched[patched_cve]:
+                dict_id_ref_patched[patched_cve].append(bom_ref)
+            else:
+                bb.debug(2, f"Found duplicate patch for CVE {patched_cve} in {name}@{version}")
+                continue
+            vex["vulnerabilities"].append({
+                "id": patched_cve,
+                # vex documents require a valid source, see https://github.com/DependencyTrack/dependency-track/issues/2977
+                # this should always be NVD for yocto CVEs.
+                "source": {"name": "NVD", "url": f"https://nvd.nist.gov/vuln/detail/{patched_cve}"},
+                "analysis": {"state": "resolved"},
+                # Hint: Component specific resolving seems not to work at the moment when using DependencyTrack
+                # resolution will of CVE will be applied to all components within the project that contain the CVE
+                "affects": [{"ref": f"urn:cdx:{sbom_serial_number}/1#{bom_ref}"}]
+            })
+
+        # populate vex file with ignored CVEs defined in CVE_CHECK_IGNORE
+        cve_check_ignore = d.getVar("CVE_CHECK_IGNORE")
+        if cve_check_ignore is not None:
+            for ignored_cve in cve_check_ignore.split():
+                bb.debug(2, f"Found ignore statement for CVE {ignored_cve} in {name}@{version}")
+                if ignored_cve not in dict_id_ref_ignored:
+                    dict_id_ref_ignored[ignored_cve] = []
+                if bom_ref not in dict_id_ref_ignored[ignored_cve]:
+                    dict_id_ref_ignored[ignored_cve].append(bom_ref)
                 else:
-                    bb.debug(2, f"Found duplicate patch for CVE {patched_cve} in {name}@{version}")
+                    bb.debug(2, f"Found duplicate ignore statement for CVE {ignored_cve} in {name}@{version}")
                     continue
                 vex["vulnerabilities"].append({
-                    "id": patched_cve,
+                    "id": ignored_cve,
                     # vex documents require a valid source, see https://github.com/DependencyTrack/dependency-track/issues/2977
                     # this should always be NVD for yocto CVEs.
-                    "source": {"name": "NVD", "url": f"https://nvd.nist.gov/vuln/detail/{patched_cve}"},
-                    "analysis": {"state": "resolved"},
+                    "source": {"name": "NVD", "url": f"https://nvd.nist.gov/vuln/detail/{ignored_cve}"},
+                    # setting not-affected state for ignored CVEs
+                    "analysis": {"state": "not_affected"},
                     # Hint: Component specific resolving seems not to work at the moment when using DependencyTrack
                     # resolution will of CVE will be applied to all components within the project that contain the CVE
                     "affects": [{"ref": f"urn:cdx:{sbom_serial_number}/1#{bom_ref}"}]
                 })
-
-            # populate vex file with ignored CVEs defined in CVE_CHECK_IGNORE
-            cve_check_ignore = d.getVar("CVE_CHECK_IGNORE")
-            if cve_check_ignore is not None:
-                for ignored_cve in cve_check_ignore.split():
-                    bb.debug(2, f"Found ignore statement for CVE {ignored_cve} in {name}@{version}")
-                    if ignored_cve not in dict_id_ref_ignored:
-                        dict_id_ref_ignored[ignored_cve] = []
-                    if bom_ref not in dict_id_ref_ignored[ignored_cve]:
-                        dict_id_ref_ignored[ignored_cve].append(bom_ref)
-                    else:
-                        bb.debug(2, f"Found duplicate ignore statement for CVE {ignored_cve} in {name}@{version}")
-                        continue
-                    vex["vulnerabilities"].append({
-                        "id": ignored_cve,
-                        # vex documents require a valid source, see https://github.com/DependencyTrack/dependency-track/issues/2977
-                        # this should always be NVD for yocto CVEs.
-                        "source": {"name": "NVD", "url": f"https://nvd.nist.gov/vuln/detail/{ignored_cve}"},
-                        # setting not-affected state for ignored CVEs
-                        "analysis": {"state": "not_affected"},
-                        # Hint: Component specific resolving seems not to work at the moment when using DependencyTrack
-                        # resolution will of CVE will be applied to all components within the project that contain the CVE
-                        "affects": [{"ref": f"urn:cdx:{sbom_serial_number}/1#{bom_ref}"}]
-                    })
     
     # write it back to the deploy directory
     write_json(d.getVar("CYCLONEDX_EXPORT_SBOM"), sbom)
@@ -156,52 +161,6 @@ addtask do_cyclonedx_package_collect before do_build
 do_cyclonedx_package_collect[nostamp] = "1"
 do_cyclonedx_package_collect[lockfiles] += "${CYCLONEDX_EXPORT_LOCK}"
 do_rootfs[recrdeptask] += "do_cyclonedx_package_collect"
-
-# MODIFIED: Converting JSON to XML  
-#python do_cyclonedx_convert_to_xml(e):
- #   import os
- #   import subprocess
-
-  #  d = e.data
-  #  sbom_json_path = d.getVar("CYCLONEDX_EXPORT_SBOM")
-  # vex_json_path = d.getVar("CYCLONEDX_EXPORT_VEX")
-   # sbom_xml_path = d.getVar("CYCLONEDX_EXPORT_SBOM_XML")
-   # vex_xml_path = d.getVar("CYCLONEDX_EXPORT_VEX_XML")
-
-    #if not os.path.exists(sbom_json_path):
-    #    bb.warn(f"SBOM JSON file not found, skipping XML conversion: {sbom_json_path}")
-     #   return
-
-   # cyclonedx_cli = ""
-    # Search in system paths like /usr/local/bin
-    #for path_dir in os.environ.get("PATH", "").split(os.pathsep):
-     #   path = os.path.join(path_dir, "cyclonedx-cli")
-      #  if os.path.isfile(path) and os.access(path, os.X_OK):
-       #     cyclonedx_cli = path
-        #    break
-
-    #if not cyclonedx_cli:
-     #   bb.warn("cyclonedx-cli executable not found in PATH. Only JSON files will be generated.")
-      #  return
-
-    #bb.note(f"Converting CycloneDX JSON reports to XML format using {cyclonedx_cli}...")
-
-    #cmd_sbom = [cyclonedx_cli, "convert", "--input-file", sbom_json_path, "--output-file", sbom_xml_path, "--output-format", "xml"]
-    #try:
-     #   subprocess.check_output(cmd_sbom, stderr=subprocess.STDOUT)
-      #  bb.note(f"CycloneDX SBOM XML report generated at: {sbom_xml_path}")
-    #except subprocess.CalledProcessError as err:
-     "   bb.warn(f"Failed to convert SBOM JSON to XML. Command output:\n{err.output.decode()}")
-
-    #cmd_vex = [cyclonedx_cli, "convert", "--input-file", vex_json_path, "--output-file", vex_xml_path, "--output-format", "xml"]
-    #try:
-    #    subprocess.check_output(cmd_vex, stderr=subprocess.STDOUT)
-     #   bb.note(f"CycloneDX VEX XML report generated at: {vex_xml_path}")
-    #except subprocess.CalledProcessError as err:
-     #   bb.warn(f"Failed to convert VEX JSON to XML. Command output:\n{err.output.decode()}")
-
-#addhandler do_cyclonedx_convert_to_xml
-#do_cyclonedx_convert_to_xml[eventmask] = "bb.event.BuildCompleted"
 
 def read_json(path):
     import json
@@ -252,7 +211,15 @@ def generate_packages_list(d, products_names, version):
         license_str = d.getVar("LICENSE")
         if license_str:
             licenses = re.split(r'\s*[&|]\s*', license_str)
-            pkg["licenses"] = [{"license": {"id": lic}} for lic in licenses if lic]
+            pkg["licenses"] = []
+            for lic in licenses:
+                if lic:
+                    pkg["licenses"].append({
+                        "license": {
+                            "id": lic,
+                            "url": f"https://spdx.org/licenses/{lic}.html"
+                        }
+                    })
 
         # MODIFIED: Add external references for source project 
         homepage = d.getVar("HOMEPAGE")
