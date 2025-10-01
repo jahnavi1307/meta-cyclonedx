@@ -46,7 +46,7 @@ python do_cyclonedx_init() {
         "version": 1,
         "metadata": {
             "timestamp": timestamp,
-            "tools": [{"name": "yocto"}]
+            "tools": [{"name": "yocto"}],
              # MODIFIED: Added main component definition
             "component": main_component
         },
