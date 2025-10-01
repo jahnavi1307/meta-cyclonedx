@@ -50,7 +50,7 @@ python do_cyclonedx_init() {
              # MODIFIED: Added main component definition
             "component": main_component
         },
-        "components": []
+        "components": [main_component] # Add main_component to components
     })
 
     bb.debug(2, f"Creating empty vex file with serial number {vex_serial_number}")
@@ -61,7 +61,8 @@ python do_cyclonedx_init() {
         "version": 1,
         "metadata": {
             "timestamp": timestamp,
-            "tools": [{"name": "yocto"}]
+            "tools": [{"name": "yocto"}],
+            "component": main_component  # Add main_component to VEX metadata
         },
         "vulnerabilities": []
     })
@@ -220,6 +221,9 @@ def generate_packages_list(d, products_names, version):
                             "url": f"https://spdx.org/licenses/{lic}.html"
                         }
                     })
+        else:
+            # Default license if not specified
+            pkg["licenses"] = [{"license": {"id": "Unknown"}}]
 
         # MODIFIED: Add external references for source project 
         homepage = d.getVar("HOMEPAGE")
